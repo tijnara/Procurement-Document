@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
-import { Plus } from 'lucide-react';
+import { Plus, ChevronsUpDown } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
 
 export interface ProcurementRequest {
   id: string;
@@ -28,6 +31,16 @@ interface ProcurementFormProps {
 }
 
 export function ProcurementForm({ onSubmit }: ProcurementFormProps) {
+  const [departments, setDepartments] = useState<{ value: string; label: string }[]>([]);
+  const [deptLoading, setDeptLoading] = useState<boolean>(false);
+  const [deptError, setDeptError] = useState<string | null>(null);
+
+  const [users, setUsers] = useState<{ value: string; label: string }[]>([]);
+  const [userLoading, setUserLoading] = useState<boolean>(false);
+  const [userError, setUserError] = useState<string | null>(null);
+  const [requestorOpen, setRequestorOpen] = useState<boolean>(false);
+  const [deptOpen, setDeptOpen] = useState<boolean>(false);
+
   const [formData, setFormData] = useState({
     itemName: '',
     quantity: 1,
@@ -39,6 +52,65 @@ export function ProcurementForm({ onSubmit }: ProcurementFormProps) {
     budgetCode: '',
     link: '',
   });
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDepartments() {
+      try {
+        setDeptLoading(true);
+        setDeptError(null);
+        const res = await fetch('http://localhost:8055/items/department');
+        if (!res.ok) throw new Error(`Failed to load departments: ${res.status}`);
+        const json = await res.json();
+        const items: any[] = Array.isArray(json?.data) ? json.data : [];
+        const mapped = items.map((it) => {
+          const value = (it?.department_id ?? it?.id ?? it?.value ?? it?.code ?? it?.slug ?? it?.department ?? it?.title ?? it?.name ?? '').toString();
+          const label = (it?.department_name ?? it?.label ?? it?.name ?? it?.department ?? it?.title ?? value).toString();
+          return { value, label };
+        }).filter((d) => d.value && d.label);
+        if (isMounted) {
+          setDepartments(mapped);
+        }
+      } catch (err: any) {
+        if (isMounted) setDeptError(err?.message || 'Unable to load departments');
+      } finally {
+        if (isMounted) setDeptLoading(false);
+      }
+    }
+    loadDepartments();
+    return () => { isMounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadUsers() {
+      try {
+        setUserLoading(true);
+        setUserError(null);
+        const res = await fetch('http://localhost:8055/items/user');
+        if (!res.ok) throw new Error(`Failed to load users: ${res.status}`);
+        const json = await res.json();
+        const items: any[] = Array.isArray(json?.data) ? json.data : [];
+        const mapped = items.map((it) => {
+          const fname = (it?.user_fname ?? '').toString().trim();
+          const lname = (it?.user_lname ?? '').toString().trim();
+          const full = [fname, lname].filter(Boolean).join(' ').trim();
+          const value = full;
+          const label = full;
+          return { value, label };
+        }).filter((d) => d.value && d.label);
+        if (isMounted) {
+          setUsers(mapped);
+        }
+      } catch (err: any) {
+        if (isMounted) setUserError(err?.message || 'Unable to load users');
+      } finally {
+        if (isMounted) setUserLoading(false);
+      }
+    }
+    loadUsers();
+    return () => { isMounted = false; };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,30 +204,94 @@ export function ProcurementForm({ onSubmit }: ProcurementFormProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="requestor">Requestor Name *</Label>
-              <Input
-                id="requestor"
-                value={formData.requestor}
-                onChange={(e) => handleInputChange('requestor', e.target.value)}
-                placeholder="Your name"
-                required
-              />
+              <Popover open={requestorOpen} onOpenChange={setRequestorOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={requestorOpen}
+                    className="w-full justify-between"
+                    id="requestor"
+                  >
+                    {formData.requestor || (userLoading ? 'Loading users...' : 'Select user')}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                  <Command>
+                    <CommandInput placeholder="Type a name..." />
+                    <CommandList>
+                      {userLoading && <CommandEmpty>Loading users...</CommandEmpty>}
+                      {!userLoading && userError && <CommandEmpty>Failed to load users</CommandEmpty>}
+                      {!userLoading && !userError && users.length === 0 && (
+                        <CommandEmpty>No users found.</CommandEmpty>
+                      )}
+                      {!userLoading && !userError && users.length > 0 && (
+                        <CommandGroup>
+                          {users.map((u) => (
+                            <CommandItem
+                              key={u.value}
+                              value={u.label}
+                              onSelect={() => {
+                                handleInputChange('requestor', u.label);
+                                setRequestorOpen(false);
+                              }}
+                            >
+                              {u.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             
             <div className="space-y-2">
               <Label htmlFor="department">Department *</Label>
-              <Select value={formData.department} onValueChange={(value) => handleInputChange('department', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="IT">Information Technology</SelectItem>
-                  <SelectItem value="HR">Human Resources</SelectItem>
-                  <SelectItem value="Finance">Finance</SelectItem>
-                  <SelectItem value="Operations">Operations</SelectItem>
-                  <SelectItem value="Marketing">Marketing</SelectItem>
-                  <SelectItem value="Sales">Sales</SelectItem>
-                </SelectContent>
-              </Select>
+              <Popover open={deptOpen} onOpenChange={setDeptOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={deptOpen}
+                    className="w-full justify-between"
+                    id="department"
+                  >
+                    {formData.department || (deptLoading ? 'Loading departments...' : 'Select department')}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                  <Command>
+                    <CommandInput placeholder="Type a department..." />
+                    <CommandList>
+                      {deptLoading && <CommandEmpty>Loading departments...</CommandEmpty>}
+                      {!deptLoading && deptError && <CommandEmpty>Failed to load departments</CommandEmpty>}
+                      {!deptLoading && !deptError && departments.length === 0 && (
+                        <CommandEmpty>No departments available</CommandEmpty>
+                      )}
+                      {!deptLoading && !deptError && departments.length > 0 && (
+                        <CommandGroup>
+                          {departments.map((d) => (
+                            <CommandItem
+                              key={d.value}
+                              value={d.label}
+                              onSelect={() => {
+                                handleInputChange('department', d.label);
+                                setDeptOpen(false);
+                              }}
+                            >
+                              {d.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
 
